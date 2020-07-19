@@ -74,7 +74,7 @@ disp(['Starting iteration ' num2str(k) ' of ' num2str(numIt)]);
               
         % calculate likelihood      
         Lprop = liklihood(dProp,dataAligned,sigma,liklihoodType);
-
+        %fprintf("Lprop: " + Lprop + ", " + "L0: " + L0 + "\n")
         % make random number to compare to ratio of likelihoods
         u = rand;
         

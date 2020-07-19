@@ -7,8 +7,8 @@ path = "/home/setholinger/Documents/Projects/PIG/modeling/mcmc/";
 % set some parameters
 statDist = 10000;
 t0 = 5.5;
-f_max = 0.5;
-t_max = 125;
+f_max = 1;
+t_max = 500;
 
 % construct some variables
 t = 1/(2*f_max):1/(2*f_max):t_max;
@@ -18,65 +18,79 @@ nt = t_max*(2*f_max);
 test = 0;
 
 % get real data
-fname = "/media/Data/Data/PIG/MSEED/noIR/PIG2/HHZ/2012-04-02.PIG2.HHZ.noIR.MSEED";
-dataStruct = rdmseed(fname);
+centroid = 1;
+numCluster = 10;
+if centroid
+    centroids = h5read(numCluster + "_cluster_predictions_0.05-1Hz.h5","/centroids");
+    centroids = squeeze(centroids)';
+    medAmps = h5read(numCluster + "_cluster_median_amplitudes.h5","/median_amplitudes");    
+else
+    
+    fname = "/media/Data/Data/PIG/MSEED/noIR/PIG2/HHZ/2012-04-02.PIG2.HHZ.noIR.MSEED";
+    dataStruct = rdmseed(fname);
 
-% extract trace
-trace = extractfield(dataStruct,'d');
-fs = 100;
+    % extract trace
+    trace = extractfield(dataStruct,'d');
+    fs = 100;
 
-% resample data to 1 Hz
-fsNew = f_max*2;
-trace = resample(trace,fsNew,100);
+    % resample data to 1 Hz
+    fsNew = f_max*2;
+    trace = resample(trace,fsNew,100);
 
-% set event bounds
-startTime = ((15*60+18)*60+50)*fsNew;
-endTime = startTime + nt;
+    % set event bounds
+    startTime = ((15*60+18)*60+50)*fsNew;
+    endTime = startTime + nt;
 
-% trim data to event bounds
-eventTrace = trace(startTime:endTime-1);
+    % trim data to event bounds
+    eventTrace = trace(startTime:endTime-1);
 
-% remove scalar offset using first value
-eventTrace = eventTrace - eventTrace(1);
+    % remove scalar offset using first value
+    eventTrace = eventTrace - eventTrace(1);
+    
+    % find index of max value
+    [~,dataMaxIdx] = max(eventTrace);
+end
 
 % if toy problem mode, set waveform to recover
 if test
     testParams = [450,600,statDist,t0,f_max,t_max];
     [eventTrace,~] = GF_func_mcmc(testParams,eventTrace);
+    % find index of max value
+    [~,dataMaxIdx] = max(eventTrace);
 end
-
-% find index of max value
-[~,dataMaxIdx] = max(eventTrace);
 
 % set mcmc parameters
 % x0 goes like this: [h_i,h_w,statDist,t0,f_max,t_max,dataMaxIdx]
 % f_max, t_max, and dataMaxIdx MUST have 0 step size in xStep
 % t0 is log now! so the value here is like 10^x
-x0_vect = {[350,800,10000,log10(6),f_max,t_max]};
-xStepVect = {[10,10,4,log10(1.1),0,0],...
-             [25,25,500,log10(1.1885),0,0],...
-             [100,100,2000,log10(1.9953),0,0],...
-             [400,400,8000,log10(15.8489),0,0]};
+x0_vect = {[250,250,10000,log10(6),f_max,t_max]};
+xStepVect = {[25,25,500,log10(1.1885),0,0]};
+
+%             {[10,10,4,log10(1.1),0,0],...
+%             [25,25,500,log10(1.1885),0,0],...
+%             [100,100,2000,log10(1.9953),0,0],...
+%             [400,400,8000,log10(15.8489),0,0]};
+
 xBounds = [0,1000;
            0,1000;
            0,20000;
            -1,2;
            0,f_max+1;
            0,t_max+1;];
-sigmaVect = [20];
-t_max_vect = [t_max,t_max,t_max];
+sigmaVect = [6,6,6,6,6,6,6,6,6,6];
+t_max_vect = [t_max];
 numIt = 100;
 L_type_vect = ["modified"];
 axisLabels = ["Ice thickness (m)", "Water depth (m)", "X_{stat} (km)","t_0 (s)"];
 paramLabels = ["h_i","h_w","Xstat","t0"];
 maxNumBins =  100;
 
-try
-    parpool;
-    poolobj = gcp;
-catch
-    fprintf("Using existing parpool...\n")
-end
+%try
+%    parpool;
+%    poolobj = gcp;
+%catch
+%    fprintf("Using existing parpool...\n")
+%end
 
 tic;
 
@@ -84,12 +98,21 @@ tic;
 for p = 1:length(sigmaVect)      
     
     % get parameters for run
-    xStep = xStepVect{p};
+    xStep = xStepVect{1};
     sigma = sigmaVect(p);
-    L_type = L_type_vect(p);
-    t_max = t_max_vect(p);
-    x0 = x0_vect{p};
+    L_type = L_type_vect(1);
+    t_max = t_max_vect(1);
+    x0 = x0_vect{1};
 
+    % get current centroid and scale by median cluster amplitude
+    if centroid
+        eventTrace = centroids(p,:);
+        eventTrace = eventTrace/max(eventTrace);
+        eventTrace = eventTrace*medAmps(p);
+        % find index of max value
+        [~,dataMaxIdx] = max(eventTrace);
+    end
+    
     % trim data if needed
     t = 1/(2*f_max):1/(2*f_max):t_max;
     nt = t_max*(2*f_max);
@@ -159,8 +182,12 @@ for p = 1:length(sigmaVect)
         resultStruct = struct('xFit',xFit,'L_fit',L_fit,'G_fit',G_fit,'G_0',G_0,'L_keep',L_keep,...
                               'x_keep',x_keep,'x0',x0,'xStep',xStep,'M_frac',M_frac,'L_type',L_type,...
                               'xBounds',xBounds,'sigma',sigma,'numIt',numIt,'labels',paramLabels);
-        parsave("run" + p + "_results.mat",resultStruct)   
-
+        if centroid
+            parsave(path + "centroid" + p + "_results.mat",resultStruct)
+        else
+            parsave(path + "run" + p + "_results.mat",resultStruct)
+        end
+        
     else
 
         % convert X_stat to km
@@ -179,8 +206,12 @@ for p = 1:length(sigmaVect)
                               'xStep',xStep,'M_frac',M_frac,'xBounds',xBounds,'L_type',L_type,...
                               'sigma',sigma,'numIt',numIt,'labels',paramLabels,'accept',accept,...
                               'f_max',f_max,'t_max',t_max);
-        parsave(path + "run" + p + "_results.mat",resultStruct)
-
+        if centroid
+            parsave(path + "centroid" + p + "_results.mat",resultStruct)
+        else
+            parsave(path + "run" + p + "_results.mat",resultStruct)
+        end
+        
     end
     
 end
