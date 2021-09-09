@@ -2,15 +2,16 @@
 % Green's function with observed seismic data
 
 % set output path
-path = "/home/setholinger/Documents/Projects/PIG/modeling/mcmc/committee_meeting_modeling/";
+path = "/home/setholinger/Documents/Projects/PIG/modeling/mcmc/";
 
 % set some parameters
-statDist = 1000;
+statDist = 20000;
 t0 = 5.5;
 f_max = 1;
-t_max = 100;
+t_max = 250;
 h_i_avg = 400;
 h_w_avg = 590;
+freq = [0.05,1];
 
 % construct some variables
 t = 1/(2*f_max):1/(2*f_max):t_max;
@@ -20,8 +21,8 @@ nt = t_max*(2*f_max);
 test = 0;
 
 % get real data
-centroid = 1;
-numCluster = 14;
+centroid = 0;
+numCluster = 2;
 centroid_fs = 2;
 if centroid
     %centroids = h5read(numCluster + "_cluster_predictions_0.05-1Hz.h5","/centroids");
@@ -31,10 +32,11 @@ if centroid
     % get just vertical
     centroids = centroids(:,1:1001);
     %medAmps = h5read(numCluster + "_cluster_median_amplitudes.h5","/median_amplitudes");
-    centroid_win = [400,900;1,500;100,600;150,350;200,700;200,700;400,900;0,500;0,500;400,900];
+    %centroid_win = [400,900;1,500;100,600;150,350;200,700;200,700;400,900;0,500;0,500;400,900];
+    centroid_win = [100,600;100,600];
 else
     
-    fname = "/media/Data/Data/PIG/MSEED/noIR/PIG2/HHZ/2012-04-02.PIG2.HHZ.noIR.MSEED";
+    fname = "/media/Data/Data/PIG/MSEED/noIR/PIG2/HHZ/2012-06-20.PIG2.HHZ.noIR.MSEED";
     dataStruct = rdmseed(fname);
 
     % extract trace
@@ -46,7 +48,11 @@ else
     trace = resample(trace,fsNew,100);
 
     % set event bounds
-    startTime = ((15*60+18)*60+50)*fsNew;
+    hr = 20;
+    min = 42;
+    sec = 0;
+    startTime = ((hr*60+min)*60+sec)*fsNew;
+    nt = t_max*(2*f_max);
     endTime = startTime + nt;
 
     % trim data to event bounds
@@ -72,7 +78,7 @@ end
 % f_max, t_max, and dataMaxIdx MUST have 0 step size in xStep
 % t0 is log now! so the value here is like 10^x
 x0_vect = {[h_i_avg,h_w_avg,20000,1,f_max,t_max]};
-xStepVect = {[0,0,10000,5,0,0]};
+xStepVect = {[0,0,1000,0.5,0,0]};
 
 %             {[10,10,4,log10(1.1),0,0],...
 %             [25,25,500,log10(1.1885),0,0],...
@@ -85,9 +91,9 @@ xBounds = [0,2000;
            0,20;
            0,f_max+1;
            0,t_max+1;];
-sigmaVect = [20];
+sigmaVect = [5];
 t_max_vect = [t_max];
-numIt = 100000;
+numIt = 10000;
 L_type_vect = ["modified"];
 axisLabels = ["Ice thickness (m)", "Water depth (m)", "X_{stat} (km)","t_0 (s)"];
 paramLabels = ["h_i","h_w","Xstat","t0"];
@@ -104,7 +110,7 @@ tic;
 
 %parfor p = 1:length(sigmaVect)
 %for p = 1:length(sigmaVect) 
-for p = 4:4
+for p = 2:2
     
     % get parameters for run
     xStep = xStepVect{1};
@@ -145,7 +151,7 @@ for p = 4:4
     %x0(4) = 10^(x0(4));
     
     % generate intial Green's function
-    [G_0,eventAlign,M_frac_0] = GF_func_mcmc(x0,eventTraceTrim);
+    [G_0,eventAlign,M_frac_0] = GF_func_mcmc(x0,eventTraceTrim,freq);
 
     % deal with log t0
     %x0(4) = log10(x0(4));
@@ -155,7 +161,7 @@ for p = 4:4
     
     % run mcmc
     [x_keep,L_keep,count,alpha_keep,accept,M_frac] = mcmc('GF_func_mcmc',eventTraceTrim,...
-                                              x0,xStep,xBounds,sigma,numIt,M_frac_0,L0,L_type);
+                                              x0,xStep,xBounds,sigma,numIt,M_frac_0,L0,L_type,freq);
                                           
     % give output
     fprintf("Accepted " + round((sum(accept)/numIt)*100) + " %% of proposals\n");
@@ -184,7 +190,7 @@ for p = 4:4
         xFit = getFit(x_keep,paramsVaried,numBins,x0);
 
         % generate Green's function
-        [G_fit,eventAlign,M_fit] = GF_func_mcmc(xFit,eventTraceTrim);
+        [G_fit,eventAlign,M_fit] = GF_func_mcmc(xFit,eventTraceTrim,freq);
         
         % calculate liklihood
         L_fit = liklihood(G_fit,eventAlign,sigma,L_type);
@@ -199,11 +205,7 @@ for p = 4:4
         plot_fit_wave(t,eventAlign,sigma,L_fit,M_fit,G_fit,xFit,numIt,xStep,p,accept,L_type,path)
         plot_multivar(sigma,accept,xStep,x_keep,M_frac,x0,numIt,....
               p,paramsVaried,axisLabels,maxNumBins,L_type,path,f_max,t_max)
-        
-        % convert X_stat to km
-        x_keep(3,:) = x_keep(3,:)/1000;
-        
-        % save results
+    
         resultStruct = struct('xFit',xFit,'L_fit',L_fit,'G_fit',G_fit,'G_0',G_0,'L_keep',L_keep,...
                               'x_keep',x_keep,'x0',x0,'xStep',xStep,'M_frac',M_frac,'L_type',L_type,...
                               'xBounds',xBounds,'sigma',sigma,'numIt',numIt,'labels',paramLabels);

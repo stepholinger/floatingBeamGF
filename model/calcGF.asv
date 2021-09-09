@@ -1,0 +1,52 @@
+function [dGdt_vert,dGdt_horz,stf,model] = calcGF(L,f_max,t_max,h_i,h_w,stat_dist,t0,source,mode,h_c_initial,h_c_final)
+
+% make model object
+model = loadParameters(L,f_max,t_max,h_i,h_w,stat_dist,t0,source,mode);
+if nargin > 9
+    model.h_c_intial = h_c_initial;
+    model.h_c_final = h_c_final;    
+end
+
+% caclulate max pressure and moment
+model.P_max = model.rho_i * model.g * h_i;
+model.M_max =  model.rho_i * model.g * h_i^3 / 12 * 0.072;
+
+% get index of desired position
+[~,loc_idx] = min(abs(model.x - stat_dist));
+
+% run model
+G_mat = semiAnalyticGreenFunction(model);
+
+% take spatial derivative if moment source
+if source == "moment"
+    [~,G_mat] = gradient(G_mat,model.dx);
+end
+
+% attach matrix of Green's function solutions to the model
+model.G_mat = G_mat;
+
+% get vertical Green's function closest seismometer location
+G_vert = G_mat(loc_idx,:);
+
+% get tilt Green's function
+[~,tilt_mat] = gradient(model.G_mat,model.dx);
+G_tilt = tilt_mat(loc_idx,:);
+
+% convolve vertical Green's function with stf
+[G_vert_stf,stf] = convolve_stf(G_vert,model);
+
+% take time derivative to get velocity seismogram
+dGdt_vert = gradient(G_vert,model.dt);
+
+% convolve tilt Green's function with stf
+[G_tilt_stf,stf] = convolve_stf(G_tilt,model);
+
+% get acceleration timeseries from tilt
+acc_horz = G_tilt_stf * model.g;
+
+% integrate to get horizontal (radial) velocity timeseries
+dGdt_horz = cumtrapz(model.t,acc_horz);
+    
+plot(dGdt_vert);hold on;plot(dGdt_horz)
+
+end

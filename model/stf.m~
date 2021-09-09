@@ -1,0 +1,85 @@
+if moment options
+    % call moment_curve function and get portion of moment curve corresponding to h_c_initial and h_c_final
+    [m_curve,c_ratio] = moment_curve(model,t0,mode,h_c_initial,h_c_final);
+    [~,h_c_initial_idx] = min(abs(c_ratio - h_c_initial));
+    [~,h_c_final_idx] = min(abs(c_ratio - h_c_final));
+    m_curve = m_curve(h_c_initial_idx:h_c_final_idx);
+
+    % get delta m by subracting initial moment
+    delta_m_curve = m_curve - m_curve(1);
+
+    % get new time axis
+    new_t = [-fliplr(model.t),model.t(2:end)];
+
+    % extend delta m curve
+    padding = length(new_t)-length(delta_m_curve);
+    stf = [delta_m_curve,ones(1,padding)*delta_m_curve(end)];
+
+    % convolve with Green's function
+    dGdx_pad = zeros(size(new_t));
+    dGdx_pad(ceil(end/2):end) = dGdx;
+    G_stf = ifft(fft(dGdx_pad).*fft(stf));
+
+    % get rid of padding
+    G_stf = G_stf(ceil(end/2):end);
+    stf = stf(1:ceil(end/2));
+
+if gaus or stf
+      
+    % if half pulse source type, use error function to make stf
+    if pulseType == "half down" || pulseType == "half up"
+        
+        try
+            % make error function pulse
+            new_t = [-fliplr(model.t),model.t(2:end)];
+            erfStf = (erf(new_t/t0)+1)/2;
+            [~,offset_index] = max(find(erfStf < tol));
+            erfOffset = -(max(new_t) + new_t(offset_index));
+            erfStf = (erf((new_t-erfOffset)/t0)+1)/2;
+        catch
+            error("Use a larger t_max for a pulse with t0 = " + string(t0))
+        end
+        
+        % flip if necessary
+        if pulseType == "half down"
+            stf = fliplr(erfStf);
+        elseif pulseType == "half up"
+            stf = erfStf;
+        end
+        
+        % scale if desired
+        stf = stf*scale;
+        
+        % convolve with Green's function
+        G_scaled_pad = zeros(size(new_t));
+        G_scaled_pad(ceil(end/2):end) = G_scaled;
+        G_stf = ifft(fft(G_scaled_pad).*fft(stf));
+        
+        % get rid of padding
+        G_stf = G_stf(ceil(end/2):end);
+        if pulseType == "half down"
+            stf = stf(ceil(end/2):end);
+        elseif pulseType == "half up"
+            stf = stf(1:ceil(end/2));
+        end
+        
+    elseif pulseType == "full"   
+        
+        % make half gaussian pulse      
+        try
+            gausStf = exp((((model.t-t_max/2)/t0).^2)/-2)/t0/sqrt(2*pi);
+            gausStf = gausStf./max(gausStf);
+            [~,offset_index] = max(find(gausStf(1:end/2) < tol));
+            gausStf = gausStf(offset_index:end-offset_index);
+            stf = [zeros(1,offset_index),gausStf,zeros(1,offset_index-1)];            
+                   
+            % scale if desired
+            stf = stf*scale;
+            
+            % convolve with Green's function
+            G_stf = ifft(fft(G_scaled).*fft(stf));
+        catch
+            error("Use a larger t_max for a pulse with t0 = " + string(t0))
+        end
+
+    end

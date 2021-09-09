@@ -1,0 +1,63 @@
+function [model,dGdt,dGdx,stf] = calcGF_new(L,f_max,t_max,h_i,h_w,statDist,t0,mode,h_c_initial,h_c_final)
+
+% make model object
+model = loadParameters(L,f_max,t_max,h_i,h_w);
+
+% get index of desired position
+[~,locIdx] = min(abs(model.x - statDist));
+
+% run model
+G = semiAnalyticGreenFunction(model);
+
+% take spatial derivative
+[~,dGdx] = gradient(G,model.dx);
+
+% get trace closest seismometer location
+dGdx = dGdx(locIdx,:);
+
+% get source time function and convolve with Green's function
+if sum(contains(["basal","surface","hydrostatic"],mode)) > 0 
+    
+    % call stf function with crevasse mode
+    stf = source_time_function(model,t0,mode,h_c_initial,h_c_final);
+    
+    % convolve stf with Green's function
+    dGdx_pad = zeros(size(model.t)*2-1);
+    dGdx_pad(ceil(end/2):end) = dGdx;
+    G_stf = ifft(fft(dGdx_pad).*fft(stf));
+    %G_stf = ifft(fft(dGdx).*fft(stf));
+    G_stf = dGdx_pad,stf
+    % get rid of padding
+    %G_stf = G_stf(ceil(end/2):end);
+    %stf = stf(1:ceil(end/2));
+
+elseif mode == "erf"
+    
+    % call stf function with erf mode
+    stf = source_time_function(model,t0,mode);
+    
+    % convolve stf with Green's function
+    dGdx_pad = zeros(size(model.t)*2-1);
+    dGdx_pad(ceil(end/2):end) = dGdx;
+    G_stf = ifft(fft(dGdx_pad).*fft(stf));
+
+    % get rid of padding FIX
+%    G_stf = G_stf(ceil(end/2):end);
+%    if mode == "half down"
+%        stf = stf(ceil(end/2):end);
+%    elseif mode == "half up"
+%        stf = stf(1:ceil(end/2));
+%    end
+
+elseif mode == "gaussian"
+    
+    % call stf function with gaussian mode
+    stf = source_time_function(model,t0,mode);
+    G_stf = ifft(fft(dGdx).*fft(stf));
+
+end
+
+% take time derivative to get velocity seismogram
+dGdt = gradient(G_stf,model.dt);
+    
+end

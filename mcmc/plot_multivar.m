@@ -1,45 +1,45 @@
-function plot_multivar(sigma,accept,xStep,x_keep,M_frac,x0,numIt,p,...
-                       paramsVaried,axisLabels,maxNumBins,L_type,path,f_max,t_max)
-                   
-% get useful info
-numParams = length(paramsVaried);
-numPanelSide = numParams + 1;
+function plot_multivar(mcmc_object,out_path)
+            
+% set internal parameters
+max_num_bins = 100;
 
-axisLabels = axisLabels(paramsVaried)
+% get useful info
+x_step = [mcmc_object.steps.h_i;mcmc_object.steps.h_w;mcmc_object.steps.stat_dist;...
+          mcmc_object.steps.t0;mcmc_object.steps.h_c_initial;mcmc_object.steps.h_c_final];
+x_keep = mcmc_object.results.x_keep;
+axis_labels = ["Ice thickness (m)", "Water depth (m)", "X_{stat} (km)",...
+    "t_0 (s)","Initial h_c (% ice thickness)","Final h_c (% ice thickness)"];
+param_ind = [1,2,3,4,5,6];
+params_varied = param_ind(x_step ~= 0);
+num_params = length(params_varied);
+num_panel_per_side = num_params + 1;
+
+% convert X_stat to km and crevasse heights to percentage
+x_keep(3,:) = x_keep(3,:)/1000;
+x_keep(5:6,:) = 100*(0.5+x_keep(5:6,:));
 
 % make gridded plots of all independent parameters
-for i = 1:numParams
-    for j = i:numParams
+for i = 1:num_params
+    
+    % get number of bins
+    num_bins = length(unique(x_keep(params_varied(i),:)));
+    if num_bins > max_num_bins
+        num_bins = max_num_bins;
+    end
+    
+    for j = i:num_params
         
         if i ~= j
             
-            % get number of bins
-            numBins = length(unique(x_keep(paramsVaried(i),:)));
-            if numBins > maxNumBins
-                numBins = maxNumBins;
-            end
+            % get point with max density for current variable pair
+            x_fit = get_fit(mcmc_object,[params_varied(j) params_varied(i)],num_bins);
             
-            % get point with max density for current variable pair- use log
-            % version for t0 (parameter 4)
-            %if paramsVaried(j) == 4
-            %    xFit = getFitLog(x_keep,[paramsVaried(j) paramsVaried(i)],numBins,x0,'x');
-            %else
-            %    xFit = getFit(x_keep,[paramsVaried(j) paramsVaried(i)],numBins,x0);
-            %end
-            xFit = getFit(x_keep,[paramsVaried(j) paramsVaried(i)],numBins,x0);
-
             % get correct subplot indices
-            figInd = sub2ind([numPanelSide,numPanelSide],j,i);
-            subplot(numPanelSide,numPanelSide,figInd);           
+            fig_ind = sub2ind([num_panel_per_side,num_panel_per_side],j,i);
+            subplot(num_panel_per_side,num_panel_per_side,fig_ind);           
             
-            % make dscatter density plot of results- use log
-            % version for t0 (parameter 4)
-            dscatter(x_keep(paramsVaried(j),:)',x_keep(paramsVaried(i),:)','BINS',[numBins,numBins]);
-            %if paramsVaried(j) == 4
-            %    dscatter(x_keep(paramsVaried(j),:)',x_keep(paramsVaried(i),:)','BINS',[numBins,numBins],'LOGX',true);
-            %    xticks([1e-2 0.05 1e-1 0.5 1e0 5 1e1 50 1e2]);
-            %    xticklabels({'0.01','0.05','0.1','0.5','1','5','10','50','100'})
-            %end
+            % make dscatter density plot of results
+            dscatter(x_keep(params_varied(j),:)',x_keep(params_varied(i),:)','BINS',[num_bins,num_bins]);
             
             % set axes positions
             ax = gca;
@@ -47,22 +47,22 @@ for i = 1:numParams
             ax.XAxisLocation = "top";
             
             % plot dashed red lines intersecting at max density point
-            xline(xFit(paramsVaried(j)),"r--");
-            yline(xFit(paramsVaried(i)),"r--");
+            xline(x_fit(params_varied(j)),"r--");
+            yline(x_fit(params_varied(i)),"r--");
             
             % set axes limits based on range of values 
-            xlim([min(x_keep(paramsVaried(j),:)),max(x_keep(paramsVaried(j),:))]);
-            ylim([min(x_keep(paramsVaried(i),:)),max(x_keep(paramsVaried(i),:))]);
+            xlim([min(x_keep(params_varied(j),:)),max(x_keep(params_varied(j),:))]);
+            ylim([min(x_keep(params_varied(i),:)),max(x_keep(params_varied(i),:))]);
             
             % force full outlines
             box on;
            
             % remove x-axis labels if current subplot does not fall along
             % edge of plot grid
-            if figInd > length(paramsVaried)
+            if fig_ind > length(params_varied)
                 xticklabels(gca,{})
             else
-                xlabel(axisLabels(j),'Color',[0 0.4470 0.7410])
+                xlabel(axis_labels(params_varied(j)),'Color',[0 0.4470 0.7410])
             end
             
             % only plots on the right edge will have y-axis labels (and
@@ -74,131 +74,51 @@ for i = 1:numParams
     end
 
     % get correct subplot indices for histogram
-    histInd = sub2ind([numPanelSide,numPanelSide],i,i);
-    subplot(numPanelSide,numPanelSide,histInd);
+    hist_ind = sub2ind([num_panel_per_side,num_panel_per_side],i,i);
+    subplot(num_panel_per_side,num_panel_per_side,hist_ind);
    
     % make histogram, using log handling if t0
-    %if paramsVaried(i) == 4
-    %    [~,edges] = histcounts(log10(x_keep(paramsVaried(i),:)),numBins);
-    %    histogram(x_keep(paramsVaried(i),:),10.^edges,'FaceColor',[0 0.4470 0.7410],...
-    %             'EdgeColor',[0 0.4470 0.7410],'FaceAlpha',1);
-    %    set(gca,'xscale','log');
-    %    xticks([1e-2 0.05 1e-1 0.5 1e0 5 1e1 50 1e2]);
-    %    xticklabels({'0.01','0.05','0.1','0.5','1','5','10','50','100'})
-    %else
-    %    histogram(x_keep(paramsVaried(i),:),numBins,'FaceColor',[0 0.4470 0.7410],...
-    %             'EdgeColor',[0 0.4470 0.7410],'FaceAlpha',1);
-    %end
-    histogram(x_keep(paramsVaried(i),:),numBins,'FaceColor',[0 0.4470 0.7410],...
-         'EdgeColor',[0 0.4470 0.7410],'FaceAlpha',1);
+    histogram(x_keep(params_varied(i),:),num_bins,'FaceColor',[0 0.4470 0.7410],...
+                 'EdgeColor',[0 0.4470 0.7410],'FaceAlpha',1);
+    
     % set axes limits based on range of values and add labels
-    xlim([min(x_keep(paramsVaried(i),:)),max(x_keep(paramsVaried(i),:))]);
-    xlabel(axisLabels(i),'Color',[0 0.4470 0.7410])
+    xlim([min(x_keep(params_varied(i),:)),max(x_keep(params_varied(i),:))]);
+    xlabel(axis_labels(params_varied(i)),'Color',[0 0.4470 0.7410])
 end
-
-% make column of M_frac plots
-for i = 1:numParams
-    
-    % get number of bins
-    numBins = length(unique(x_keep(paramsVaried(i),:)));
-    if numBins > maxNumBins
-        numBins = maxNumBins;
-    end
-    
-    % get point with max density for current variable and M_frac
-    %if paramsVaried(i) == 4
-    %    xFit = getFitLog([x_keep;M_frac],[7 paramsVaried(i)],numBins,[x0 0],'both');
-    %else
-    %    xFit = getFitLog([x_keep;M_frac],[7 paramsVaried(i)],numBins,[x0 0],'x');
-    %end
-    xFit = getFit([x_keep;M_frac*100],[7 paramsVaried(i)],numBins,[x0 0]);
-
-    % get correct subplot indices
-    figInd = sub2ind([numPanelSide,numPanelSide],numPanelSide,i);
-    subplot(numPanelSide,numPanelSide,figInd);           
-    
-    % make scatter plot (M_frac is always plotted on log x axis so variable
-    % labels will be on y axis)- use log handling for both axes if t0
-    %if paramsVaried(i) == 4
-    %    dscatter(M_frac',x_keep(paramsVaried(i),:)','BINS',[numBins,numBins],'LOGX',true,'LOGY',true);
-    %    yticks([1e-2 0.05 1e-1 0.5 1e0 5 1e1 50 1e2]);
-    %    yticklabels({'0.01','0.05','0.1','0.5','1','5','10','50','100'})
-    %else
-    %    dscatter(M_frac',x_keep(paramsVaried(i),:)','BINS',[numBins,numBins],'LOGX',true);
-    %end
-    %dscatter(M_frac',x_keep(paramsVaried(i),:)','BINS',[numBins,numBins],'LOGX',true);
-    %xticks([1e-3,0.005,1e-2 0.05 1e-1 0.5 1e0 5 1e1 50 1e2]);
-    %xticklabels({'0.0001','0.005','0.01','0.05','0.1','0.5','1','5','10','50','100'})
-    dscatter(M_frac'*100,x_keep(paramsVaried(i),:)','BINS',[numBins,numBins]);
-
-    % set axes positions
-    ax = gca;
-    ax.YAxisLocation = "right";
-    ax.XAxisLocation = "top";   
-               
-    % plot dashed red lines intersecting at max density point
-    xline(xFit(7),"r--");
-    yline(xFit(paramsVaried(i)),"r--");
-    
-    % set limits based on range of values
-    xlim([min(M_frac*100),max(M_frac*100)]);
-    ylim([min(x_keep(paramsVaried(i),:)),max(x_keep(paramsVaried(i),:))]);
-    
-    % force full box
-    box on;
-    
-    % set y-axis label and only set x-axis label if bottom plot
-    ylabel(axisLabels(i),'Color',[0 0.4470 0.7410])                
-    if i == 1
-        xlabel("M_{obs}/M_0",'Color',[0.8500 0.3250 0.0980])
-    else
-        xticklabels(gca,{})
-    end
-    
-end
-
-% make log histogram of M_frac
-%subplot(numPanelSide,numPanelSide,numPanelSide*numPanelSide);
-%[~,edges] = histcounts(log10(M_frac),numBins);
-%histogram(M_frac,10.^edges,'FaceColor',[0.8500 0.3250 0.0980],...
-%     'EdgeColor',[0.8500 0.3250 0.0980],'FaceAlpha',1);
-%set(gca,'xscale','log');
-
-%xticks([1e-3 0.0025 0.005 0.0075 1e-2 0.025 0.05 0.075 1e-1 0.25 0.5 0.75 1e0]);
-%xticklabels({'0.0001','0.0025','0.005','0.0075','0.01','0.025','0.05','0.075','0.1','0.25','0.5','0.75','1'})
-subplot(numPanelSide,numPanelSide,numPanelSide*numPanelSide);
-histogram(M_frac*100,numBins,'FaceColor',[0.8500 0.3250 0.0980],...
-      'EdgeColor',[0.8500 0.3250 0.0980],'FaceAlpha',1);
-xlim([min(M_frac*100),max(M_frac*100)]);
-xlabel("M_{obs}/M_0 (%)",'Color',[0.8500 0.3250 0.0980])
 
 % report parameters and settings for MCMC
-subplot(numPanelSide,numPanelSide,numPanelSide*numPanelSide-(numPanelSide-1))
+subplot(num_panel_per_side,num_panel_per_side,num_panel_per_side*num_panel_per_side-(num_panel_per_side-1))
 yticklabels(gca,{})
 xticklabels(gca,{})
 set(gca, 'visible', 'off')
-% text(0,1,string("MCMC parameters" + newline + "----------------------------" + newline + ...                            
-%                        "h_i step: " + xStep(1) + " m    h_w step: " + xStep(2) + " m" + newline + ...
-%                        "X_{stat} step: " + xStep(3) + " m    t_0 step: log10(" + round(10^xStep(4)) + ") s" + newline + ...
-%                        "Number of iterations: " + numIt + newline + "Sigma: " + sigma + newline + ...
-%                        "Liklihood function: " + L_type + newline + "Accepted " + ...
-%                        round(100*sum(accept)/length(accept)) + "% of proposals" + newline + newline + ...
-%                        "Model parameters" + newline + "----------------------------" + newline + ... 
-%                        "Sampling Frequency: " + 2*f_max + " Hz" + newline + "Duration: " + t_max + " s"))                   
-text(0,1,string("MCMC parameters" + newline + "----------------------------" + newline + ...                            
-           "X_{stat} step: " + xStep(3) + " m" + newline + "t_0 step: " + xStep(4) + " s" + newline + ...
-           "Number of iterations: " + numIt + newline + "Sigma: " + sigma + newline + ...
-           "Liklihood function: " + L_type + newline + "Accepted " + ...
-           round(100*sum(accept)/length(accept)) + "% of proposals" + newline + newline + ...
-           "Model parameters" + newline + "----------------------------" + newline + ... 
-           "Sampling Frequency: " + 2*f_max + " Hz" + newline + "Duration: " + t_max + " s"))                   
-%set figure size and title
+
+if sum(contains(["basal","surface","hydrostatic"],mcmc_object.mode)) > 0 
+    text(0,1,string("MCMC parameters" + newline + "----------------------------" + newline + ...                            
+                    "h_i step: " + x_step(1) + " m    h_w step: " + x_step(2) + " m" + newline + ...
+                    "X_{stat} step: " + x_step(3) + " m    t_0 step: " + x_step(4) + " s" + newline + ...
+                    "h_c step: " + x_step(5) + newline + "Number of iterations: " + mcmc_object.num_iterations + newline + ... 
+                    "Sigma: " + mcmc_object.sigma + newline + "Liklihood function: " + mcmc_object.L_type + newline + ...
+                    "Accepted " + round(100*sum(mcmc_object.results.accept)/length(mcmc_object.results.accept)) + ...
+                    "% of proposals" + newline + newline + "Model parameters" + newline + ...
+                    "----------------------------" + newline + "Sampling Frequency: " + 1/mcmc_object.model.dt + " Hz" + newline + ...
+                    "Duration: " + mcmc_object.model.t_max + " s" + newline + "Crevasse type: " + mcmc_object.mode))           
+else
+    text(0,1,string("MCMC parameters" + newline + "----------------------------" + newline + ...                            
+                    "h_i step: " + x_step(1) + " m    h_w step: " + x_step(2) + " m" + newline + ...
+                    "X_{stat} step: " + x_step(3) + " m    t_0 step: " + x_step(4) + " s" + newline + ...
+                    "h_c_initial step: " + x_step(5) + "    h_c_final step: " + x_step(6) + newline + ...
+                    "Number of iterations: " + mcmc_object.num_iterations + newline + "Sigma: " + mcmc_object.sigma + newline + ...
+                    "Liklihood function: " + mcmc_object.L_type + newline + "Accepted " + ...
+                     round(100*sum(mcmc_object.results.accept)/length(mcmc_object.results.accept)) + "% of proposals" + newline + newline + ...
+                     "Model parameters" + newline + "----------------------------" + newline + ... 
+                     "Sampling Frequency: " + 1/mcmc_object.model.dt + " Hz" + newline + "Duration: " + mcmc_object.model.t_max + " s" + newline + ...
+                     "Crevasse type: " + mcmc_object.mode))         
+end
+% set figure size and title
 set(gcf,'Position',[10 10 1200 1000])
-sgtitle("Result of MCMC inversion after " + numIt + " iterations" + newline)
+sgtitle("Result of MCMC inversion after " + mcmc_object.num_iterations + " iterations" + newline)
 
-set(findall(gcf,'-property','FontSize'),'FontSize',16)
-
-saveas(gcf,path + "centroid" + string(p-1) + "_multivar_dscatter.png")
+saveas(gcf,out_path + ".png")
 close(gcf)
 
 end
